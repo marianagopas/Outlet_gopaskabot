@@ -1,29 +1,26 @@
 import os
 from telegram import Update, InputMediaPhoto, InputMediaVideo
-from telegram.ext import (
-    ApplicationBuilder,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# ================== ТВОЇ ДАНІ ==================
-BOT_TOKEN = os.environ["BOT_TOKEN"]  # токен з Environment Variables на Railway
-
-SOURCE_CHANNEL = "@Gopaska_outlet"
+# ================== НАЛАШТУВАННЯ ==================
+BOT_TOKEN = os.environ["BOT_TOKEN"]           # Твій токен бота
+SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])  # chat.id каналу джерела
 TARGET_CHANNEL = "@Outlet_brand_Gopaska_boutique"
 SOURCE_LINK = "https://t.me/Gopaska_outlet"
-# ==============================================
+# ================================================
 
 # Тимчасове сховище для каруселей
 media_buffer = {}
-album_scheduled = set()   # щоб не відправляти альбом двічі
+album_scheduled = set()  # щоб не відправляти альбом двічі
 
 async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Перевірка на наявність channel_post
+    if not hasattr(update, "channel_post") or update.channel_post is None:
+        return
     msg = update.channel_post
 
-    # Перевірка, що це потрібний канал
-    if not msg or msg.chat.username != SOURCE_CHANNEL.replace("@", ""):
+    # Перевірка chat.id джерела
+    if msg.chat.id != SOURCE_CHAT_ID:
         return
 
     group_id = msg.media_group_id
@@ -38,7 +35,6 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo=msg.photo[-1].file_id,
                 caption=caption
             )
-
         elif msg.video:
             await context.bot.send_video(
                 chat_id=TARGET_CHANNEL,
@@ -58,7 +54,7 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if group_id not in album_scheduled:
         album_scheduled.add(group_id)
-        # Використовуємо application.job_queue замість context.job_queue
+        # Використовуємо application.job_queue для відправки альбому
         await context.application.job_queue.run_once(
             send_album, 1.2, data=group_id
         )
@@ -85,12 +81,11 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(
-        MessageHandler(filters.ChatType.CHANNEL, channel_forwarder)
-    )
+    # Використовуємо фільтр ALL для всіх типів повідомлень
+    app.add_handler(MessageHandler(filters.ALL, channel_forwarder))
 
     print("Bot running...")
-    app.run_polling()  # <- блокує процес, контейнер не закривається
+    app.run_polling()  # блокує процес, щоб контейнер не закривався
 
 if __name__ == "__main__":
     main()
