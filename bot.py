@@ -1,53 +1,35 @@
-import json
-import os
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# ================== НАЛАШТУВАННЯ ==================
-BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
-SOURCE_CHAT_ID = -1003840384606
-TARGET_CHAT_ID = -1001321059832
-SOURCE_USERNAME = "Gopaska_outlet"
-DRAFTS_FILE = "drafts.json"
-# ================================================
+BOT_TOKEN = "ВАШ_ТОКЕН"
+SOURCE_CHAT_ID = -1002509471176
+TARGET_CHAT_ID = -1002133245347
+SOURCE_USERNAME = "Gopaska_boutique_Italyclothing"
 
-drafts = {}               # media_group_id -> {"photos": [...], "first_msg_id": ...}
-current_group_id = None  # який альбом ми зараз збираємо
-sent_groups = set()      # щоб НЕ відправляти один альбом двічі
-
-# --- Безпечне завантаження JSON ---
-if os.path.exists(DRAFTS_FILE) and os.path.getsize(DRAFTS_FILE) > 0:
-    try:
-        with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
-            drafts = json.load(f)
-    except json.JSONDecodeError:
-        drafts = {}
-
-def save_drafts():
-    with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(drafts, f, ensure_ascii=False, indent=2)
+current_group_id = None
+album_buffer = {}   # media_group_id -> {"photos": [...], "first_msg_id": ...}
+sent_groups = set() # щоб не відправити двічі
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
-    """Відправляє альбом + підпис і повністю закриває його"""
+    """Відправляє альбом + підпис і повністю його закриває"""
     global current_group_id
 
-    if group_id not in drafts:
+    if group_id not in album_buffer:
         return
 
-    # Якщо вже відправляли — НЕ відправляємо знову
     if group_id in sent_groups:
-        return
+        return  # захист від дублю
 
-    album = drafts[group_id]
+    album = album_buffer[group_id]
+
+    # 1) Надсилаємо альбом
     media = [InputMediaPhoto(media=pid) for pid in album["photos"]]
-
-    # 1️⃣ Надсилаємо альбом
     await context.bot.send_media_group(
         chat_id=TARGET_CHAT_ID,
         media=media
     )
 
-    # 2️⃣ ПІДПИС ОДРАЗУ ПІСЛЯ ЦЬОГО АЛЬБОМУ
+    # 2) Підпис — посилання НА ПЕРШЕ ПОВІДОМЛЕННЯ ЦЬОГО АЛЬБОМУ
     first_msg_id = album["first_msg_id"]
     link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
 
@@ -57,12 +39,10 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
         parse_mode="HTML"
     )
 
-    # 3️⃣ ОЧИЩАЄМО ВСЕ, ЩО ПОВ’ЯЗАНЕ З ЦИМ АЛЬБОМОМ
+    # 3) Повністю закриваємо альбом
     sent_groups.add(group_id)
-    del drafts[group_id]
-    save_drafts()
+    del album_buffer[group_id]
 
-    # 🔹 Дуже важливо: СКИДАЄМО поточний альбом
     if current_group_id == group_id:
         current_group_id = None
 
@@ -75,35 +55,33 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_group_id = getattr(msg, "media_group_id", None)
 
-    # ======= АЛЬБОМ =======
+    # ======== АЛЬБОМ ========
     if new_group_id:
-        # Якщо прийшов ІНШИЙ альбом — спочатку закриваємо попередній
+        # Якщо це ІНШИЙ альбом — спочатку відправляємо попередній
         if current_group_id and current_group_id != new_group_id:
             await send_album(context, current_group_id)
 
-        # Якщо це перше фото нового альбому — створюємо буфер
-        if new_group_id not in drafts:
-            drafts[new_group_id] = {
+        # Якщо це перше фото нового альбому — створюємо запис
+        if new_group_id not in album_buffer:
+            album_buffer[new_group_id] = {
                 "photos": [],
                 "first_msg_id": msg.message_id
             }
 
-        # Додаємо фото в альбом
+        # Додаємо фото
         if msg.photo:
-            drafts[new_group_id]["photos"].append(msg.photo[-1].file_id)
+            album_buffer[new_group_id]["photos"].append(msg.photo[-1].file_id)
 
-        save_drafts()
         current_group_id = new_group_id
         return
 
-    # ======= ОДИНОЧНЕ ФОТО =======
+    # ======== ОДИНОЧНЕ ФОТО ========
     if msg.photo:
-        # Якщо перед цим був альбом — закриваємо його
+        # Якщо перед цим був альбом — спочатку закриваємо його
         if current_group_id:
             await send_album(context, current_group_id)
 
-        first_msg_id = msg.message_id
-        link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
+        link = f"https://t.me/{SOURCE_USERNAME}/{msg.message_id}"
 
         await context.bot.send_photo(
             chat_id=TARGET_CHAT_ID,
