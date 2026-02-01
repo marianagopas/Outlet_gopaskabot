@@ -1,6 +1,5 @@
 import json
 import os
-import uuid
 import asyncio
 from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
@@ -24,34 +23,38 @@ def save_albums():
         json.dump(albums, f, ensure_ascii=False, indent=2)
 
 # === Відправка альбому ===
-async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
-    if media_group_id not in albums:
+async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
+    if album_id not in albums:
         return
 
-    album = albums[media_group_id]
+    album = albums[album_id]
     media_items = album["media"]
     first_msg_id = album["first_message_id"]
 
     output_media = []
     for i, item in enumerate(media_items):
         caption = None
-        # Клікабельний підпис під словом Outlet
+        # Підпис тільки на останньому елементі
         if i == len(media_items) - 1:
             caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Outlet</a>"
+
         if item["type"] == "photo":
-            output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption, parse_mode="HTML"))
+            output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
         elif item["type"] == "video":
-            output_media.append(InputMediaVideo(media=item["file_id"], caption=caption, parse_mode="HTML"))
+            output_media.append(InputMediaVideo(media=item["file_id"], caption=caption))
 
     if output_media:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
 
     # Очищаємо після відправки
-    del albums[media_group_id]
+    del albums[album_id]
     save_albums()
 
 # === Ловимо повідомлення з каналу ===
+last_media_group_id = None
+
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global last_media_group_id
     message = update.effective_message
     if not message or message.chat_id != SOURCE_CHANNEL_ID:
         return
@@ -69,26 +72,22 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return  # поки тільки фото і відео
 
-    if media_group_id:
-        # Якщо альбом новий
-        if media_group_id not in albums:
-            albums[media_group_id] = {
-                "media": [],
-                "first_message_id": message.message_id
-            }
+    # Якщо новий альбом, то відправляємо старий
+    if media_group_id != last_media_group_id and last_media_group_id in albums:
+        await send_album(last_media_group_id, context)
 
-        albums[media_group_id]["media"].append({"file_id": file_id, "type": media_type})
-        save_albums()
+    last_media_group_id = media_group_id
 
-        # Перевірка: якщо прийшов новий media_group_id, можна відправляти старі альбоми
-        # В цьому коді старі альбоми відправляються тільки вручну, або можна додати таймер
-    else:
-        # Одиночне фото/відео відправляємо одразу
-        caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{message.message_id}'>Outlet</a>"
-        if media_type == "photo":
-            await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption, parse_mode="HTML")
-        elif media_type == "video":
-            await context.bot.send_video(chat_id=TARGET_CHANNEL_ID, video=file_id, caption=caption, parse_mode="HTML")
+    album_key = media_group_id or str(message.message_id)
+
+    if album_key not in albums:
+        albums[album_key] = {
+            "media": [],
+            "first_message_id": message.message_id
+        }
+
+    albums[album_key]["media"].append({"file_id": file_id, "type": media_type})
+    save_albums()
 
 # === Main ===
 def main():
