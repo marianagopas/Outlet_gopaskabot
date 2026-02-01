@@ -1,4 +1,3 @@
-import asyncio
 import os
 from datetime import datetime
 from telegram import Update, InputMediaPhoto, InputMediaVideo
@@ -9,12 +8,11 @@ BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 SOURCE_CHAT_ID = -1003840384606     # канал джерела
 TARGET_CHAT_ID = -1001321059832     # канал отримувача
 SOURCE_USERNAME = "Gopaska_outlet" # username джерела без @
-ALBUM_DELAY = 1.5                   # секунд, щоб зібрати альбом
 LOG_FILE = "forward_log.txt"        # лог файл
 # ================================================
 
-# Буфер для альбомів
-current_album = None  # {"media_group_id": ..., "media": [], "first_msg_id": int, "task": asyncio.Task}
+# Поточний альбом
+current_album = None  # {"media_group_id": str, "media": list, "first_msg_id": int}
 
 def log_forward(message_type: str, link: str, count: int = 1):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -34,7 +32,7 @@ async def send_album(album, context: ContextTypes.DEFAULT_TYPE):
         media=album["media"]
     )
 
-    # Підпис після альбому
+    # Підпис після альбому з клікабельним посиланням на перший пост альбому джерела
     source_link = f"https://t.me/{SOURCE_USERNAME}/{album['first_msg_id']}"
     await context.bot.send_message(
         chat_id=TARGET_CHAT_ID,
@@ -43,14 +41,6 @@ async def send_album(album, context: ContextTypes.DEFAULT_TYPE):
     )
 
     log_forward("ALBUM", source_link, len(album["media"]))
-
-async def album_timer(context: ContextTypes.DEFAULT_TYPE, group_id):
-    """Чекає ALBUM_DELAY після останнього медіа альбому"""
-    global current_album
-    await asyncio.sleep(ALBUM_DELAY)
-    if current_album and current_album["media_group_id"] == group_id:
-        await send_album(current_album, context)
-        current_album = None
 
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_album
@@ -62,31 +52,22 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== Альбом =====
     if group_id:
-        # Якщо новий альбом — закриваємо попередній
+        # Якщо новий альбом — закриваємо поточний
         if not current_album or group_id != current_album.get("media_group_id"):
             if current_album:
-                # відправляємо старий альбом одразу
-                if current_album["task"] and not current_album["task"].done():
-                    current_album["task"].cancel()  # скасовуємо старий таймер
                 await send_album(current_album, context)
-            # створюємо новий альбом
+            # Створюємо новий альбом
             current_album = {
                 "media_group_id": group_id,
                 "media": [],
-                "first_msg_id": msg.message_id,
-                "task": None
+                "first_msg_id": msg.message_id
             }
 
-        # Додаємо фото/відео
+        # Додаємо фото/відео в альбом
         if msg.photo:
             current_album["media"].append(InputMediaPhoto(media=msg.photo[-1].file_id))
         elif msg.video:
             current_album["media"].append(InputMediaVideo(media=msg.video.file_id))
-
-        # Таймер debounce
-        if current_album["task"] and not current_album["task"].done():
-            current_album["task"].cancel()
-        current_album["task"] = asyncio.create_task(album_timer(context, group_id))
         return
 
     # ===== Одиночне фото/відео/текст =====
