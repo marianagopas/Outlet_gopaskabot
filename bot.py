@@ -1,114 +1,107 @@
-import os
 import asyncio
 from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 # ================== НАЛАШТУВАННЯ ==================
-BOT_TOKEN = os.environ["BOT_TOKEN"]                   # токен бота
-SOURCE_CHAT_ID = -1003840384606                       # chat.id каналу джерела
-TARGET_CHAT_ID = -1001321059832                       # chat.id каналу отримувача
-SOURCE_USERNAME = "Gopaska_outlet"                   # username каналу джерела без @
+BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
+SOURCE_CHAT_ID = -1003840384606     # канал джерела
+TARGET_CHAT_ID = -1001321059832     # канал отримувача
+SOURCE_USERNAME = "Gopaska_outlet" # username джерела без @
 # ================================================
 
-# Буфер для альбому
-media_buffer = []
-current_group_id = None
-first_message_id_in_group = None
-album_task = None
+# Буфер для альбомів
+album_buffer = {}   # ключ: media_group_id -> list(InputMediaPhoto/Video)
+album_first_msg = {} # media_group_id -> first_message_id
 
-async def send_album(context: ContextTypes.DEFAULT_TYPE, buffer, first_msg_id):
-    if not buffer:
+async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
+    if group_id not in album_buffer:
         return
 
-    # Додаємо клікабельний підпис лише останньому елементу
-    source_post_link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
+    media_list = album_buffer[group_id]
+    first_msg_id = album_first_msg[group_id]
 
-    # Перевизначаємо останній елемент з caption
-    last_item = buffer[-1]
-    if isinstance(last_item, InputMediaPhoto):
-        buffer[-1] = InputMediaPhoto(
-            media=last_item.media,
-            caption=f"<a href='{source_post_link}'>Джерело</a>",
-            parse_mode="HTML"
+    if media_list:
+        # Додаємо клікабельний caption для останнього елемента
+        last_item = media_list[-1]
+        if isinstance(last_item, InputMediaPhoto):
+            media_list[-1] = InputMediaPhoto(
+                media=last_item.media,
+                caption=f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Джерело</a>",
+                parse_mode="HTML"
+            )
+        elif isinstance(last_item, InputMediaVideo):
+            media_list[-1] = InputMediaVideo(
+                media=last_item.media,
+                caption=f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Джерело</a>",
+                parse_mode="HTML"
+            )
+
+        await context.bot.send_media_group(
+            chat_id=TARGET_CHAT_ID,
+            media=media_list
         )
-    elif isinstance(last_item, InputMediaVideo):
-        buffer[-1] = InputMediaVideo(
-            media=last_item.media,
-            caption=f"<a href='{source_post_link}'>Джерело</a>",
-            parse_mode="HTML"
-        )
 
-    await context.bot.send_media_group(
-        chat_id=TARGET_CHAT_ID,
-        media=buffer
-    )
+    # Очищаємо буфер
+    del album_buffer[group_id]
+    del album_first_msg[group_id]
 
-async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global media_buffer, current_group_id, first_message_id_in_group, album_task
-
+async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.channel_post
     if not msg or msg.chat.id != SOURCE_CHAT_ID:
         return
 
-    group_id = msg.media_group_id
+    group_id = getattr(msg, "media_group_id", None)
 
-    # ===== Альбом / новий media_group_id =====
-    if group_id != current_group_id:
-        # Відправляємо попередній альбом, якщо він є
-        if media_buffer:
-            await send_album(context, media_buffer, first_message_id_in_group)
-            media_buffer = []
+    # ===== Альбом =====
+    if group_id:
+        if group_id not in album_buffer:
+            album_buffer[group_id] = []
+            album_first_msg[group_id] = msg.message_id
 
-        current_group_id = group_id
-        first_message_id_in_group = msg.message_id if group_id else None
+            # Таймер на відправку альбому через 1.5 сек
+            asyncio.create_task(album_timer(context, group_id))
 
-    # ===== Додаємо медіа в буфер =====
-    if msg.photo:
-        media_buffer.append(InputMediaPhoto(media=msg.photo[-1].file_id))
-    elif msg.video:
-        media_buffer.append(InputMediaVideo(media=msg.video.file_id))
-    else:
+        # Додаємо медіа у буфер
+        if msg.photo:
+            album_buffer[group_id].append(InputMediaPhoto(media=msg.photo[-1].file_id))
+        elif msg.video:
+            album_buffer[group_id].append(InputMediaVideo(media=msg.video.file_id))
         return
 
-    # ===== Одиночні фото/відео (не альбом) =====
-    if group_id is None:
-        source_post_link = f"https://t.me/{SOURCE_USERNAME}/{msg.message_id}"
-        if msg.photo:
-            await context.bot.send_photo(
-                chat_id=TARGET_CHAT_ID,
-                photo=msg.photo[-1].file_id,
-                caption=f"<a href='{source_post_link}'>Джерело</a>",
-                parse_mode="HTML"
-            )
-        elif msg.video:
-            await context.bot.send_video(
-                chat_id=TARGET_CHAT_ID,
-                video=msg.video.file_id,
-                caption=f"<a href='{source_post_link}'>Джерело</a>",
-                parse_mode="HTML"
-            )
+    # ===== Одиночне фото/відео =====
+    source_post_link = f"https://t.me/{SOURCE_USERNAME}/{msg.message_id}"
+    caption = f"<a href='{source_post_link}'>Джерело</a>"
 
-    # ===== Старт таймера для відправки альбому (якщо альбом) =====
-    if group_id and not album_task:
-        album_task = asyncio.create_task(album_timer(context))
+    if msg.photo:
+        await context.bot.send_photo(
+            chat_id=TARGET_CHAT_ID,
+            photo=msg.photo[-1].file_id,
+            caption=caption,
+            parse_mode="HTML"
+        )
+    elif msg.video:
+        await context.bot.send_video(
+            chat_id=TARGET_CHAT_ID,
+            video=msg.video.file_id,
+            caption=caption,
+            parse_mode="HTML"
+        )
+    elif msg.text:
+        await context.bot.send_message(
+            chat_id=TARGET_CHAT_ID,
+            text=f"{msg.text}\n\n<a href='{source_post_link}'>Джерело</a>",
+            parse_mode="HTML"
+        )
 
-async def album_timer(context: ContextTypes.DEFAULT_TYPE):
-    global media_buffer, current_group_id, first_message_id_in_group, album_task
-    await asyncio.sleep(1.5)  # даємо час зібрати всі елементи альбому
-    if media_buffer:
-        await send_album(context, media_buffer, first_message_id_in_group)
-        media_buffer = []
-    album_task = None
-    current_group_id = None
-    first_message_id_in_group = None
+async def album_timer(context: ContextTypes.DEFAULT_TYPE, group_id):
+    await asyncio.sleep(1.5)
+    await send_album(context, group_id)
 
 def main():
-    print(f"Starting bot. SOURCE_CHAT_ID={SOURCE_CHAT_ID}, TARGET_CHAT_ID={TARGET_CHAT_ID}")
-
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.ALL, channel_forwarder))
+    app.add_handler(MessageHandler(filters.ALL, forward_message))
 
-    print("Bot running...")
+    print("Бот запущений...")
     app.run_polling()
 
 if __name__ == "__main__":
