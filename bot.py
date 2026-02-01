@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 import asyncio
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
@@ -30,7 +31,7 @@ def log_forward(album_link, count):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] ALBUM | {count} items | {album_link}")
 
-# --- Відправка альбому та підпису ---
+# --- Відправка альбому з підписом ---
 async def send_album(context: ContextTypes.DEFAULT_TYPE, draft_id):
     draft = drafts.get(draft_id)
     if not draft or not draft.get("photos"):
@@ -40,7 +41,7 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, draft_id):
     media_group = [InputMediaPhoto(media=pid) for pid in draft["photos"]]
     await context.bot.send_media_group(chat_id=TARGET_CHAT_ID, media=media_group)
 
-    # Відправляємо підпис після альбому
+    # Підпис після альбому (посилання на перший пост альбому джерела)
     first_msg_id = draft["first_msg_id"]
     source_link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
     await context.bot.send_message(
@@ -53,7 +54,7 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, draft_id):
     del drafts[draft_id]
     save_drafts()
 
-# --- Ловимо повідомлення ---
+# --- Ловимо повідомлення з каналу ---
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg or msg.chat.id != SOURCE_CHAT_ID:
@@ -74,8 +75,8 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         save_drafts()
 
-        # Відправляємо альбом асинхронно
-        asyncio.create_task(send_album(context, media_group_id))
+        # Відправляємо альбом
+        await send_album(context, media_group_id)
         return
 
     # --- Одиночне фото ---
@@ -90,6 +91,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         log_forward(source_link, 1)
 
+# --- Main ---
 def main():
     if not os.path.exists(DRAFTS_FILE):
         open(DRAFTS_FILE, "w", encoding="utf-8").close()
