@@ -39,8 +39,16 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     for i, item in enumerate(media_items):
         caption = None
         if i == len(media_items) - 1:
+            # Клікабельний підпис Outlet, URL приховано
             caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Outlet</a>"
-        output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
+
+        output_media.append(
+            InputMediaPhoto(
+                media=item["file_id"],
+                caption=caption,
+                parse_mode="HTML"  # обов'язково для клікабельного підпису
+            )
+        )
 
     if output_media:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
@@ -89,7 +97,12 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Одиночне фото
         caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{message.message_id}'>Outlet</a>"
-        await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
+        await context.bot.send_photo(
+            chat_id=TARGET_CHANNEL_ID,
+            photo=file_id,
+            caption=caption,
+            parse_mode="HTML"
+        )
 
 # === Main ===
 def main():
