@@ -1,4 +1,3 @@
-import os
 from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import (
     ApplicationBuilder,
@@ -7,28 +6,28 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ================== ТВОЇ ДАНІ (вже вставлені) ==================
+# ================== ТВОЇ ДАНІ ==================
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 
 SOURCE_CHANNEL = "@Gopaska_outlet"
 TARGET_CHANNEL = "@Outlet_brand_Gopaska_boutique"
-
 SOURCE_LINK = "https://t.me/Gopaska_outlet"
-# ===============================================================
+# ==============================================
 
 # Тимчасове сховище для каруселей
 media_buffer = {}
+album_scheduled = set()   # <-- ВАЖЛИВО: щоб не відправляти альбом двічі
 
 async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.channel_post
 
-    # Перевіряємо, що це пост із потрібного каналу
+    # Перевірка, що це потрібний канал
     if not msg or msg.chat.username != SOURCE_CHANNEL.replace("@", ""):
         return
 
     group_id = msg.media_group_id
 
-    # ===== ОДИНАРНЕ ФОТО / ВІДЕО =====
+    # ===== ОДИНОЧНЕ ФОТО / ВІДЕО =====
     if not group_id:
         caption = f"\n\nДжерело: {SOURCE_LINK}"
 
@@ -48,9 +47,12 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ===== КАРУСЕЛЬ (АЛЬБОМ) =====
+
+    # Якщо це перший елемент альбому — створюємо список
     if group_id not in media_buffer:
         media_buffer[group_id] = []
 
+    # Додаємо медіа в буфер
     if msg.photo:
         media_buffer[group_id].append(
             InputMediaPhoto(media=msg.photo[-1].file_id)
@@ -60,12 +62,15 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InputMediaVideo(media=msg.video.file_id)
         )
 
-    # Чекаємо 1.2 сек, щоб зібрати весь альбом
-    await context.job_queue.run_once(
-        send_album,
-        1.2,
-        data=group_id
-    )
+    # Запускаємо відправку альбому ТІЛЬКИ один раз
+    if group_id not in album_scheduled:
+        album_scheduled.add(group_id)
+
+        await context.job_queue.run_once(
+            send_album,
+            1.2,  # чекаємо ~1.2 сек, щоб зібрати всі фото
+            data=group_id
+        )
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE):
     group_id = context.job.data
@@ -76,6 +81,7 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
     media_group = media_buffer[group_id]
 
     if media_group:
+        # Додаємо підпис ТІЛЬКИ до останнього елемента
         media_group[-1].caption = f"Джерело: {SOURCE_LINK}"
 
         await context.bot.send_media_group(
@@ -83,7 +89,9 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
             media=media_group
         )
 
+    # Очищаємо пам'ять
     del media_buffer[group_id]
+    album_scheduled.discard(group_id)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
