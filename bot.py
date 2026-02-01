@@ -39,7 +39,6 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     for i, item in enumerate(media_items):
         caption = None
         if i == len(media_items) - 1:
-            # Підпис прихований під словом Outlet
             caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Outlet</a>"
         if item["type"] == "photo":
             output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
@@ -47,12 +46,7 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
             output_media.append(InputMediaVideo(media=item["file_id"], caption=caption))
 
     if output_media:
-        # Додаємо parse_mode="HTML", щоб HTML-підпис працював
-        await context.bot.send_media_group(
-            chat_id=TARGET_CHANNEL_ID, 
-            media=output_media,
-            parse_mode="HTML"
-        )
+        await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
 
     # Очищаємо після відправки
     del albums[media_group_id]
@@ -106,9 +100,9 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Одиночне фото/відео
         caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{message.message_id}'>Outlet</a>"
         if media_type == "photo":
-            await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption, parse_mode="HTML")
+            await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
         elif media_type == "video":
-            await context.bot.send_video(chat_id=TARGET_CHANNEL_ID, video=file_id, caption=caption, parse_mode="HTML")
+            await context.bot.send_video(chat_id=TARGET_CHANNEL_ID, video=file_id, caption=caption)
 
 # === Main ===
 def main():
