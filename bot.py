@@ -1,7 +1,6 @@
 import json
 import os
 import uuid
-import asyncio
 from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -25,10 +24,10 @@ def save_albums():
 
 # === Відправка альбому ===
 async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
-    if album_id not in albums:
+    album = albums.get(album_id)
+    if not album:
         return
 
-    album = albums[album_id]
     media_items = album["media"]
     first_msg_id = album["first_message_id"]
 
@@ -36,7 +35,6 @@ async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
     for i, item in enumerate(media_items):
         caption = None
         if i == len(media_items) - 1:
-            # Клікабельний підпис під словом Outlet
             caption = f"<a href='https://t.me/c/{str(album['source_channel_id'])[4:]}/{first_msg_id}'>Outlet</a>"
         if item["type"] == "photo":
             output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
@@ -46,9 +44,15 @@ async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
     if output_media:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
 
-    # Видаляємо альбом після відправки
+    # Після відправки видаляємо альбом
     del albums[album_id]
     save_albums()
+
+# === Перевірка і відправка всіх альбомів, готових до відправки ===
+async def process_ready_albums(context: ContextTypes.DEFAULT_TYPE):
+    ready = [aid for aid, a in albums.items() if a.get("ready_to_send")]
+    for aid in ready:
+        await send_album(aid, context)
 
 # === Ловимо повідомлення з каналу ===
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,34 +71,34 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = message.video.file_id
         media_type = "video"
     else:
-        return  # поки тільки фото і відео
+        return
 
-    # Якщо альбом
+    # --- Закриття попередніх альбомів, якщо прийшов новий id ---
     if media_group_id:
-        # Новий альбом
-        if media_group_id not in albums:
-            # Закриваємо старі альбоми, що ще не відправлені
-            for aid in list(albums.keys()):
-                await send_album(aid, context)
-
-            albums[media_group_id] = {
-                "media": [],
-                "first_message_id": message.message_id,
-                "source_channel_id": SOURCE_CHANNEL_ID
-            }
-
-        albums[media_group_id]["media"].append({"file_id": file_id, "type": media_type})
-        save_albums()
+        # Всі альбоми з іншим media_group_id позначаємо ready_to_send
+        for aid, alb in albums.items():
+            if aid != str(media_group_id):
+                alb["ready_to_send"] = True
+        await process_ready_albums(context)
+        album_id = str(media_group_id)
     else:
-        # Одиночне фото/відео як окремий альбом
+        # Одиночне фото/відео
+        for aid in list(albums.keys()):
+            albums[aid]["ready_to_send"] = True
+        await process_ready_albums(context)
         album_id = str(uuid.uuid4())
+
+    # --- Додаємо медіа до альбому ---
+    if album_id not in albums:
         albums[album_id] = {
-            "media": [{"file_id": file_id, "type": media_type}],
+            "media": [],
             "first_message_id": message.message_id,
-            "source_channel_id": SOURCE_CHANNEL_ID
+            "source_channel_id": SOURCE_CHANNEL_ID,
+            "ready_to_send": False
         }
-        save_albums()
-        await send_album(album_id, context)
+
+    albums[album_id]["media"].append({"file_id": file_id, "type": media_type})
+    save_albums()
 
 # === Main ===
 def main():
