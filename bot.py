@@ -6,50 +6,55 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 BOT_TOKEN = os.environ["BOT_TOKEN"]                   # токен бота
 SOURCE_CHAT_ID = -1003840384606                       # chat.id каналу джерела
 TARGET_CHAT_ID = -1001321059832                       # chat.id каналу отримувача
-SOURCE_LINK = "https://t.me/Gopaska_outlet"
+SOURCE_USERNAME = "Gopaska_outlet"                   # username каналу джерела без @
 # ================================================
 
-# Тимчасове сховище для каруселей
+# Тимчасове сховище для альбомів
 media_buffer = {}
-album_scheduled = set()  # щоб не відправляти альбом двічі
+album_scheduled = set()
 
 async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not hasattr(update, "channel_post") or update.channel_post is None:
         return
     msg = update.channel_post
 
-    # Логування для дебагу
+    # Логування
     print(f"Received message: chat.id={msg.chat.id}, type={msg.chat.type}, media_group_id={msg.media_group_id}")
 
-    # Перевірка chat.id джерела
+    # Перевірка джерела
     if msg.chat.id != SOURCE_CHAT_ID:
         return
 
+    # Генеруємо посилання на оригінальний пост
+    source_post_link = f"https://t.me/{SOURCE_USERNAME}/{msg.message_id}"
+
     group_id = msg.media_group_id
 
-    # ===== ОДИНОЧНЕ ФОТО / ВІДЕО =====
+    # ===== Одиночне фото / відео =====
     if not group_id:
-        caption = f"\n\nДжерело: {SOURCE_LINK}"
+        caption = f"<a href='{source_post_link}'>Джерело</a>"
 
         if msg.photo:
-            print("Sending photo...")
+            print("Sending single photo...")
             await context.bot.send_photo(
                 chat_id=TARGET_CHAT_ID,
                 photo=msg.photo[-1].file_id,
-                caption=caption
+                caption=caption,
+                parse_mode="HTML"
             )
         elif msg.video:
-            print("Sending video...")
+            print("Sending single video...")
             await context.bot.send_video(
                 chat_id=TARGET_CHAT_ID,
                 video=msg.video.file_id,
-                caption=caption
+                caption=caption,
+                parse_mode="HTML"
             )
         else:
-            print("No photo/video to send.")
+            print("No media to send.")
         return
 
-    # ===== КАРУСЕЛЬ (АЛЬБОМ) =====
+    # ===== Альбом / Карусель =====
     if group_id not in media_buffer:
         media_buffer[group_id] = []
 
@@ -60,25 +65,32 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if group_id not in album_scheduled:
         album_scheduled.add(group_id)
+        # Чекати ~1.2 сек, щоб зібрати всі елементи альбому
         await context.application.job_queue.run_once(
-            send_album, 1.2, data=group_id
+            send_album, 1.2, data={"group_id": group_id, "link": source_post_link}
         )
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE):
-    group_id = context.job.data
+    job_data = context.job.data
+    group_id = job_data["group_id"]
+    source_post_link = job_data["link"]
 
     if group_id not in media_buffer:
         return
 
     media_group = media_buffer[group_id]
+
     if media_group:
-        media_group[-1].caption = f"Джерело: {SOURCE_LINK}"
+        # Додаємо клікабельний підпис лише останньому елементу
+        media_group[-1].caption = f"<a href='{source_post_link}'>Джерело</a>"
+
         print(f"Sending album with {len(media_group)} items...")
         await context.bot.send_media_group(
             chat_id=TARGET_CHAT_ID,
             media=media_group
         )
 
+    # Очищаємо буфер
     del media_buffer[group_id]
     album_scheduled.discard(group_id)
 
@@ -86,13 +98,10 @@ def main():
     print(f"Starting bot. SOURCE_CHAT_ID={SOURCE_CHAT_ID}, TARGET_CHAT_ID={TARGET_CHAT_ID}")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Фільтр всіх повідомлень, щоб ловити channel_post
     app.add_handler(MessageHandler(filters.ALL, channel_forwarder))
 
-    # ✅ Тримає контейнер живим, без asyncio.run(), щоб не було Event loop errors
     print("Bot running...")
-    app.run_polling()
+    app.run_polling()  # тримає процес живим
 
 if __name__ == "__main__":
     main()
