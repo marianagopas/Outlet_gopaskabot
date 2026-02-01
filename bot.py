@@ -8,8 +8,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 SOURCE_CHAT_ID = -1003840384606     # канал джерела
 TARGET_CHAT_ID = -1001321059832     # канал отримувача
-SOURCE_USERNAME = "Gopaska_outlet" # username джерела без @
-ALBUM_DELAY = 1.5                   # час очікування на збирання альбому
+SOURCE_USERNAME = "Gopaska_outlet" # username каналу джерела без @
+ALBUM_DELAY = 1.5                   # час очікування для збору альбому
 LOG_FILE = "forward_log.txt"        # логування пересланих постів
 # ================================================
 
@@ -18,7 +18,7 @@ album_buffer = {}       # media_group_id -> list(InputMediaPhoto/Video)
 album_first_msg = {}    # media_group_id -> first message_id
 
 def log_forward(message_type: str, link: str, count: int = 1):
-    """Логування пересланих постів у файл та консоль"""
+    """Логування пересланих постів"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{timestamp}] {message_type} | {count} items | {link}\n"
     print(entry.strip())
@@ -34,26 +34,20 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
     first_msg_id = album_first_msg[group_id]
 
     if media_list:
-        # Додаємо клікабельний caption для останнього елемента
-        last_item = media_list[-1]
-        link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
-        if isinstance(last_item, InputMediaPhoto):
-            media_list[-1] = InputMediaPhoto(
-                media=last_item.media,
-                caption=f"<a href='{link}'>Джерело</a>",
-                parse_mode="HTML"
-            )
-        elif isinstance(last_item, InputMediaVideo):
-            media_list[-1] = InputMediaVideo(
-                media=last_item.media,
-                caption=f"<a href='{link}'>Джерело</a>",
-                parse_mode="HTML"
-            )
-
+        # Відправляємо альбом без caption
         await context.bot.send_media_group(
             chat_id=TARGET_CHAT_ID,
             media=media_list
         )
+
+        # Під альбомом відправляємо текст із клікабельним посиланням на пост джерела
+        link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
+        await context.bot.send_message(
+            chat_id=TARGET_CHAT_ID,
+            text=f"<a href='{link}'>Джерело</a>",
+            parse_mode="HTML"
+        )
+
         log_forward("ALBUM", link, count=len(media_list))
 
     # Очищаємо буфер
