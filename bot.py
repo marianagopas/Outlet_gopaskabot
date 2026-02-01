@@ -8,8 +8,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 SOURCE_CHAT_ID = -1003840384606     # канал джерела
 TARGET_CHAT_ID = -1001321059832     # канал отримувача
-SOURCE_USERNAME = "Gopaska_outlet" # username каналу джерела без @
-ALBUM_DELAY = 1.5                   # час очікування для збору альбому
+SOURCE_USERNAME = "Gopaska_outlet" # username джерела без @
+ALBUM_DELAY = 1.5                   # час очікування на збирання альбому
 LOG_FILE = "forward_log.txt"        # логування пересланих постів
 # ================================================
 
@@ -18,7 +18,7 @@ album_buffer = {}       # media_group_id -> list(InputMediaPhoto/Video)
 album_first_msg = {}    # media_group_id -> first message_id
 
 def log_forward(message_type: str, link: str, count: int = 1):
-    """Логування пересланих постів"""
+    """Логування пересланих постів у файл та консоль"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{timestamp}] {message_type} | {count} items | {link}\n"
     print(entry.strip())
@@ -107,17 +107,15 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         log_forward("TEXT", source_post_link)
 
-async def main_async():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.ALL, forward_message))
 
     print("Бот запущений...")
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    app.run_polling()  # <-- автоматично створює event loop, idle, polling
 
 if __name__ == "__main__":
     # Створюємо лог файл, якщо його немає
     if not os.path.exists(LOG_FILE):
         open(LOG_FILE, "w", encoding="utf-8").close()
-    asyncio.run(main_async())
+    main()
