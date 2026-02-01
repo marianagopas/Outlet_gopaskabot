@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 SOURCE_CHANNEL_ID = -1003840384606
 TARGET_CHANNEL_ID = -1001321059832
-SOURCE_USERNAME = "Gopaska_outlet"  # username каналу без @
+SOURCE_USERNAME = "Gopaska_outlet"
 JSON_FILE = "albums.json"
 
 # === Завантаження або створення JSON ===
@@ -35,6 +35,7 @@ async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
     for i, item in enumerate(media_items):
         caption = None
         if i == len(media_items) - 1:
+            # Клікабельний підпис Outlet
             caption = f"<a href='https://t.me/c/{str(album['source_channel_id'])[4:]}/{first_msg_id}'>Outlet</a>"
         if item["type"] == "photo":
             output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
@@ -48,13 +49,13 @@ async def send_album(album_id, context: ContextTypes.DEFAULT_TYPE):
     del albums[album_id]
     save_albums()
 
-# === Перевірка і відправка всіх альбомів, готових до відправки ===
+# === Перевірка всіх альбомів на відправку ===
 async def process_ready_albums(context: ContextTypes.DEFAULT_TYPE):
     ready = [aid for aid, a in albums.items() if a.get("ready_to_send")]
     for aid in ready:
         await send_album(aid, context)
 
-# === Ловимо повідомлення з каналу ===
+# === Обробка повідомлення з каналу ===
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or message.chat_id != SOURCE_CHANNEL_ID:
@@ -75,14 +76,12 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Закриття попередніх альбомів, якщо прийшов новий id ---
     if media_group_id:
-        # Всі альбоми з іншим media_group_id позначаємо ready_to_send
         for aid, alb in albums.items():
             if aid != str(media_group_id):
                 alb["ready_to_send"] = True
         await process_ready_albums(context)
         album_id = str(media_group_id)
     else:
-        # Одиночне фото/відео
         for aid in list(albums.keys()):
             albums[aid]["ready_to_send"] = True
         await process_ready_albums(context)
