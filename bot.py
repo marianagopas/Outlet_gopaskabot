@@ -4,13 +4,14 @@ import asyncio
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD8"
+# === Налаштування ===
+BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"  # твій справжній токен
 SOURCE_CHANNEL_ID = -1003840384606
 TARGET_CHANNEL_ID = -1001321059832
 JSON_FILE = "albums.json"
-ALBUM_TIMEOUT = 10  # секунд
+ALBUM_TIMEOUT = 10  # секунд, чекати останнє фото альбому
 
-# Завантажуємо або створюємо JSON
+# === Завантаження або створення JSON ===
 if os.path.exists(JSON_FILE):
     with open(JSON_FILE, "r", encoding="utf-8") as f:
         albums = json.load(f)
@@ -24,6 +25,7 @@ def save_albums():
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(albums, f, ensure_ascii=False, indent=2)
 
+# === Відправка альбому ===
 async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     if media_group_id not in albums:
         return
@@ -34,25 +36,26 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
 
     media_list = []
     for i, file_id in enumerate(photos):
-        if i == len(photos) - 1:  # останній елемент з підписом
+        caption = None
+        if i == len(photos) - 1:  # останнє фото отримує підпис
             caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{first_msg_id}'>Outlet</a>"
-        else:
-            caption = None
         media_list.append(InputMediaPhoto(media=file_id, caption=caption))
 
     if media_list:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=media_list)
 
-    # видаляємо альбом після відправки
+    # Видаляємо альбом після відправки
     del albums[media_group_id]
     save_albums()
     if media_group_id in album_timers:
         del album_timers[media_group_id]
 
+# === Таймер на альбом ===
 async def schedule_album_send(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(ALBUM_TIMEOUT)
     await send_album(media_group_id, context)
 
+# === Ловимо повідомлення з каналу ===
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or message.chat_id != SOURCE_CHANNEL_ID:
@@ -64,7 +67,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.photo:
         file_id = message.photo[-1].file_id
     else:
-        return  # обробляємо тільки фото, можна додати відео аналогічно
+        return  # поки тільки фото, можна додати відео аналогічно
 
     if media_group_id:
         # Створюємо альбом у JSON, якщо ще немає
@@ -77,7 +80,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         albums[media_group_id]["photos"].append(file_id)
         save_albums()
 
-        # Якщо є активний таймер, скидаємо його
+        # Якщо таймер вже є, скидаємо його
         if media_group_id in album_timers:
             album_timers[media_group_id].cancel()
 
@@ -89,6 +92,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{message.message_id}'>Outlet</a>"
         await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
 
+# === Main ===
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.ALL, forward_message))
