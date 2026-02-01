@@ -7,29 +7,38 @@ from telegram.ext import (
     ContextTypes,
 )
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "тут_токен_якщо_нема_env")
+# ================== ТВОЇ ДАНІ ==================
+BOT_TOKEN = os.environ["BOT_TOKEN"]  # токен з Environment Variables на Railway
+
 SOURCE_CHANNEL = "@Gopaska_outlet"
 TARGET_CHANNEL = "@Outlet_brand_Gopaska_boutique"
 SOURCE_LINK = "https://t.me/Gopaska_outlet"
+# ==============================================
 
+# Тимчасове сховище для каруселей
 media_buffer = {}
-album_scheduled = set()
+album_scheduled = set()   # щоб не відправляти альбом двічі
 
 async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.channel_post
+
+    # Перевірка, що це потрібний канал
     if not msg or msg.chat.username != SOURCE_CHANNEL.replace("@", ""):
         return
 
     group_id = msg.media_group_id
 
+    # ===== ОДИНОЧНЕ ФОТО / ВІДЕО =====
     if not group_id:
         caption = f"\n\nДжерело: {SOURCE_LINK}"
+
         if msg.photo:
             await context.bot.send_photo(
                 chat_id=TARGET_CHANNEL,
                 photo=msg.photo[-1].file_id,
                 caption=caption
             )
+
         elif msg.video:
             await context.bot.send_video(
                 chat_id=TARGET_CHANNEL,
@@ -38,6 +47,7 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    # ===== КАРУСЕЛЬ (АЛЬБОМ) =====
     if group_id not in media_buffer:
         media_buffer[group_id] = []
 
@@ -55,25 +65,32 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE):
     group_id = context.job.data
+
     if group_id not in media_buffer:
         return
 
     media_group = media_buffer[group_id]
     if media_group:
+        # Підпис лише до останнього елемента
         media_group[-1].caption = f"Джерело: {SOURCE_LINK}"
-        await context.bot.send_media_group(chat_id=TARGET_CHANNEL, media=media_group)
+        await context.bot.send_media_group(
+            chat_id=TARGET_CHANNEL,
+            media=media_group
+        )
 
+    # Очищаємо пам'ять
     del media_buffer[group_id]
     album_scheduled.discard(group_id)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Додаємо handler
-    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_forwarder))
+    app.add_handler(
+        MessageHandler(filters.ChatType.CHANNEL, channel_forwarder)
+    )
 
     print("Bot running...")
-    app.run_polling()  # <- блокуючий виклик, тримає контейнер живим
+    app.run_polling()  # <- блокує процес, контейнер не закривається
 
 if __name__ == "__main__":
     main()
