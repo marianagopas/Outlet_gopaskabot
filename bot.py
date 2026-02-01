@@ -1,142 +1,87 @@
-import json
 import os
-import uuid
+import json
 import asyncio
-import re
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, CallbackQueryHandler, ContextTypes
-from deep_translator import GoogleTranslator
+from telegram import Update, InputMediaPhoto, InputMediaVideo
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
-SOURCE_CHANNEL_ID = -1003840384606
-TARGET_CHANNEL_ID = -1001321059832
-ADMIN_ID = 522888907
-SOURCE_USERNAME = "Gopaska_outlet"
-DRAFTS_FILE = "drafts.json"
+SOURCE_CHANNEL_ID = -1003840384606  # канал джерела
+TARGET_CHANNEL_ID = -1001321059832  # канал отримувача
+SOURCE_USERNAME = "Gopaska_outlet"  # username джерела без @
+DRAFTS_FILE = "albums.json"
 
-# --- Завантаження чернеток ---
+# Завантаження тимчасових альбомів
 if os.path.exists(DRAFTS_FILE):
     with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
-        try:
-            drafts = json.load(f)
-        except json.JSONDecodeError:
-            drafts = {}
+        albums = json.load(f)
 else:
-    drafts = {}
+    albums = {}  # media_group_id -> {"media": [], "first_msg_id": int, "type": "photo/video"}
 
-def save_drafts():
+def save_albums():
     with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(drafts, f, ensure_ascii=False, indent=2)
+        json.dump(albums, f, ensure_ascii=False, indent=2)
 
-# --- Переклад ---
-def translate_to_ukrainian(text):
-    try:
-        return GoogleTranslator(source='auto', target='uk').translate(text)
-    except Exception:
-        return text
+async def send_album(context: ContextTypes.DEFAULT_TYPE, album_id):
+    """Відправка альбому з підписом на джерело"""
+    album = albums.get(album_id)
+    if not album:
+        return
 
-def add_source_signature(text):
-    link = f"https://t.me/{SOURCE_USERNAME}/"
-    return f"{text}\n\n<a href='{link}'>Джерело</a>"
+    media_list = album["media"]
+    first_msg_id = album["first_msg_id"]
+    link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
 
-# --- Відправка чернетки адміну ---
-async def send_draft_preview(context: ContextTypes.DEFAULT_TYPE, draft_id):
-    draft = drafts[draft_id]
-
-    # Фото / альбом (тільки перше фото)
-    if draft.get("is_album"):
-        await context.bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=draft["photos"][0],
-            caption=f"Чернетка (альбом)"
-        )
-    elif draft.get("photo"):
-        await context.bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=draft["photo"],
-            caption=f"Чернетка"
-        )
+    # Додаємо caption тільки до останнього елемента
+    last_item = media_list[-1]
+    if album["type"] == "photo":
+        media_list[-1] = InputMediaPhoto(media=last_item.media, caption=f"<a href='{link}'>Джерело</a>", parse_mode="HTML")
     else:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"Чернетка"
-        )
+        media_list[-1] = InputMediaVideo(media=last_item.media, caption=f"<a href='{link}'>Джерело</a>", parse_mode="HTML")
 
-# --- Ловимо повідомлення з каналу ---
+    await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=media_list)
+
+    # Видаляємо альбом з JSON
+    del albums[album_id]
+    save_albums()
+    print(f"Альбом {album_id} надіслано.")
+
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    if message.chat_id != SOURCE_CHANNEL_ID:
+    msg = update.effective_message
+    if msg.chat.id != SOURCE_CHANNEL_ID:
         return
 
-    text = message.caption or message.text or "Без тексту"
-    text = translate_to_ukrainian(text)
+    album_id = getattr(msg, "media_group_id", None) or f"single_{msg.message_id}"
 
-    media_group_id = getattr(message, "media_group_id", None)
+    # Якщо це новий альбом або одиночне медіа, закриваємо попередній
+    if album_id not in albums and getattr(msg, "media_group_id", None):
+        # Перевіряємо, чи є інший альбом, який треба надіслати
+        to_send = [aid for aid in albums if aid != album_id]
+        for aid in to_send:
+            await send_album(context, aid)
 
-    if media_group_id:
-        # Альбом
-        if media_group_id not in drafts:
-            drafts[media_group_id] = {
-                "photos": [],
-                "original_text": text,
-                "is_album": True
-            }
-
-        if message.photo:
-            drafts[media_group_id]["photos"].append(message.photo[-1].file_id)
-        save_drafts()
+    if msg.photo:
+        media_item = InputMediaPhoto(media=msg.photo[-1].file_id)
+        media_type = "photo"
+    elif msg.video:
+        media_item = InputMediaVideo(media=msg.video.file_id)
+        media_type = "video"
     else:
-        # Одиночне фото
-        draft_id = str(uuid.uuid4())
-        drafts[draft_id] = {
-            "photo": message.photo[-1].file_id if message.photo else None,
-            "original_text": text,
-            "is_album": False
-        }
-        save_drafts()
-
-# --- Відправка альбому з підписом ---
-async def send_album(draft_id, context: ContextTypes.DEFAULT_TYPE):
-    draft = drafts[draft_id]
-    if draft.get("is_album"):
-        media = [InputMediaPhoto(media=pid) for pid in draft["photos"]]
-        await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=media)
-        await asyncio.sleep(0.5)
-        await context.bot.send_message(chat_id=TARGET_CHANNEL_ID, text=add_source_signature(draft["original_text"]))
-    elif draft.get("photo"):
-        await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=draft["photo"],
-                                     caption=add_source_signature(draft["original_text"]))
-    else:
-        await context.bot.send_message(chat_id=TARGET_CHANNEL_ID, text=add_source_signature(draft["original_text"]))
-    # Видаляємо після відправки
-    del drafts[draft_id]
-    save_drafts()
-
-# --- Обробка кнопок ---
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data.split("|")
-    action = data[0]
-    draft_id = data[1]
-
-    if draft_id not in drafts:
-        await query.edit_message_text("⚠️ Чернетка не знайдена.")
+        # Якщо не фото/відео — ігноруємо
         return
 
-    if action == "send":
-        await send_album(draft_id, context)
-        await query.edit_message_text("✅ Опубліковано у канал")
-    elif action == "cancel":
-        await query.edit_message_text("❌ Чернетка відхилена")
-        del drafts[draft_id]
-        save_drafts()
+    if album_id not in albums:
+        albums[album_id] = {"media": [], "first_msg_id": msg.message_id, "type": media_type}
 
-# --- Main ---
+    albums[album_id]["media"].append(media_item)
+    save_albums()
+
+    # Якщо одиночне фото/відео без media_group_id — відправляємо відразу
+    if getattr(msg, "media_group_id", None) is None:
+        await send_album(context, album_id)
+
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.ALL, forward_message))
-    app.add_handler(CallbackQueryHandler(button_handler))
     print("Бот запущений...")
     app.run_polling()
 
