@@ -15,7 +15,7 @@ LOG_FILE = "forward_log.txt"        # логування пересланих п
 
 # Буфер для альбомів
 album_buffer = {}       # media_group_id -> list(InputMediaPhoto/Video)
-album_first_msg = {}    # media_group_id -> first message_id
+album_first_msg = {}    # media_group_id -> перший message_id альбому
 
 def log_forward(message_type: str, link: str, count: int = 1):
     """Логування пересланих постів у файл та консоль"""
@@ -26,7 +26,7 @@ def log_forward(message_type: str, link: str, count: int = 1):
         f.write(entry)
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
-    """Відправка альбому після таймера"""
+    """Відправка альбому та підпису після таймера"""
     if group_id not in album_buffer:
         return
 
@@ -34,13 +34,13 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
     first_msg_id = album_first_msg[group_id]
 
     if media_list:
-        # Відправляємо альбом
+        # Відправляємо альбом одним блоком
         await context.bot.send_media_group(
             chat_id=TARGET_CHAT_ID,
             media=media_list
         )
 
-        # Після альбому надсилаємо клікабельний підпис на пост джерела
+        # Після альбому надсилаємо окреме повідомлення-підпис
         source_post_link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
         await context.bot.send_message(
             chat_id=TARGET_CHAT_ID,
@@ -71,6 +71,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if group_id not in album_buffer:
             album_buffer[group_id] = []
             album_first_msg[group_id] = msg.message_id
+            # Запускаємо таймер для відправки альбому
             asyncio.create_task(album_timer(context, group_id))
 
         if msg.photo:
