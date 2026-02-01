@@ -1,10 +1,12 @@
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = "ВАШ_ТОКЕН"
+# ======== ТВОЇ ДАНІ ========
+BOT_TOKEN = "7869701595:AAEjqBrRwe8FdcEZN-ICy60XAPk586APmDw"
 SOURCE_CHAT_ID = -1002509471176
 TARGET_CHAT_ID = -1002133245347
 SOURCE_USERNAME = "Gopaska_boutique_Italyclothing"
+# ===========================
 
 current_group_id = None
 album_buffer = {}   # media_group_id -> {"photos": [...], "first_msg_id": ...}
