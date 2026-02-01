@@ -19,9 +19,24 @@ album_task = None
 async def send_album(context: ContextTypes.DEFAULT_TYPE, buffer, first_msg_id):
     if not buffer:
         return
+
     # Додаємо клікабельний підпис лише останньому елементу
     source_post_link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
-    buffer[-1].caption = f"<a href='{source_post_link}'>Джерело</a>"
+
+    # Перевизначаємо останній елемент з caption
+    last_item = buffer[-1]
+    if isinstance(last_item, InputMediaPhoto):
+        buffer[-1] = InputMediaPhoto(
+            media=last_item.media,
+            caption=f"<a href='{source_post_link}'>Джерело</a>",
+            parse_mode="HTML"
+        )
+    elif isinstance(last_item, InputMediaVideo):
+        buffer[-1] = InputMediaVideo(
+            media=last_item.media,
+            caption=f"<a href='{source_post_link}'>Джерело</a>",
+            parse_mode="HTML"
+        )
 
     await context.bot.send_media_group(
         chat_id=TARGET_CHAT_ID,
@@ -39,11 +54,11 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== Альбом / новий media_group_id =====
     if group_id != current_group_id:
-        # Якщо був попередній альбом → відправляємо
+        # Відправляємо попередній альбом, якщо він є
         if media_buffer:
-            # Відправляємо попередній альбом відразу
             await send_album(context, media_buffer, first_message_id_in_group)
             media_buffer = []
+
         current_group_id = group_id
         first_message_id_in_group = msg.message_id if group_id else None
 
@@ -55,7 +70,7 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    # ===== Якщо одиночне фото/відео (не альбом) =====
+    # ===== Одиночні фото/відео (не альбом) =====
     if group_id is None:
         source_post_link = f"https://t.me/{SOURCE_USERNAME}/{msg.message_id}"
         if msg.photo:
@@ -75,12 +90,11 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== Старт таймера для відправки альбому (якщо альбом) =====
     if group_id and not album_task:
-        # даємо 1.5 секунди, щоб прийшли всі елементи альбому
         album_task = asyncio.create_task(album_timer(context))
 
 async def album_timer(context: ContextTypes.DEFAULT_TYPE):
     global media_buffer, current_group_id, first_message_id_in_group, album_task
-    await asyncio.sleep(1.5)  # чекаємо поки всі елементи альбому прийдуть
+    await asyncio.sleep(1.5)  # даємо час зібрати всі елементи альбому
     if media_buffer:
         await send_album(context, media_buffer, first_message_id_in_group)
         media_buffer = []
