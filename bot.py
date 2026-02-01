@@ -3,9 +3,9 @@ from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 # ================== НАЛАШТУВАННЯ ==================
-BOT_TOKEN = os.environ["BOT_TOKEN"]                  # токен бота
-SOURCE_CHAT_ID = -1003840384606                      # твій chat.id джерела
-TARGET_CHANNEL = "@Outlet_brand_Gopaska_boutique"
+BOT_TOKEN = os.environ["BOT_TOKEN"]                   # токен бота
+SOURCE_CHAT_ID = -1003840384606                       # chat.id каналу джерела
+TARGET_CHAT_ID = -1001321059832                       # chat.id каналу отримувача
 SOURCE_LINK = "https://t.me/Gopaska_outlet"
 # ================================================
 
@@ -34,14 +34,14 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if msg.photo:
             print("Sending photo...")
             await context.bot.send_photo(
-                chat_id=TARGET_CHANNEL,
+                chat_id=TARGET_CHAT_ID,
                 photo=msg.photo[-1].file_id,
                 caption=caption
             )
         elif msg.video:
             print("Sending video...")
             await context.bot.send_video(
-                chat_id=TARGET_CHANNEL,
+                chat_id=TARGET_CHAT_ID,
                 video=msg.video.file_id,
                 caption=caption
             )
@@ -75,7 +75,7 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
         media_group[-1].caption = f"Джерело: {SOURCE_LINK}"
         print(f"Sending album with {len(media_group)} items...")
         await context.bot.send_media_group(
-            chat_id=TARGET_CHANNEL,
+            chat_id=TARGET_CHAT_ID,
             media=media_group
         )
 
@@ -83,10 +83,16 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
     album_scheduled.discard(group_id)
 
 def main():
+    print(f"Starting bot. SOURCE_CHAT_ID={SOURCE_CHAT_ID}, TARGET_CHAT_ID={TARGET_CHAT_ID}")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Фільтр всіх повідомлень, щоб ловити channel_post
     app.add_handler(MessageHandler(filters.ALL, channel_forwarder))
+
+    # ✅ Тримає контейнер живим, без asyncio.run(), щоб не було Event loop errors
     print("Bot running...")
-    app.run_polling()  # тримає контейнер живим
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
