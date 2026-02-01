@@ -8,6 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
 SOURCE_CHANNEL_ID = -1003840384606
 TARGET_CHANNEL_ID = -1001321059832
+SOURCE_USERNAME = "Gopaska_outlet"  # username каналу без @
 JSON_FILE = "albums.json"
 ALBUM_TIMEOUT = 10  # секунд
 
@@ -38,7 +39,7 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     for i, item in enumerate(media_items):
         caption = None
         if i == len(media_items) - 1:
-            caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{first_msg_id}'>Outlet</a>"
+            caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Outlet</a>"
         if item["type"] == "photo":
             output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
         elif item["type"] == "video":
@@ -47,6 +48,7 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     if output_media:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
 
+    # Очищаємо після відправки
     del albums[media_group_id]
     save_albums()
     if media_group_id in album_timers:
@@ -77,6 +79,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return  # поки тільки фото і відео
 
     if media_group_id:
+        # Якщо альбом новий
         if media_group_id not in albums:
             albums[media_group_id] = {
                 "media": [],
@@ -86,14 +89,16 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         albums[media_group_id]["media"].append({"file_id": file_id, "type": media_type})
         save_albums()
 
+        # Скасовуємо старий таймер, якщо є
         if media_group_id in album_timers:
             album_timers[media_group_id].cancel()
 
+        # Запускаємо новий таймер
         task = asyncio.create_task(schedule_album_send(media_group_id, context))
         album_timers[media_group_id] = task
     else:
         # Одиночне фото/відео
-        caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{message.message_id}'>Outlet</a>"
+        caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{message.message_id}'>Outlet</a>"
         if media_type == "photo":
             await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
         elif media_type == "video":
