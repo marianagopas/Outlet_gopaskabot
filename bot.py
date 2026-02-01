@@ -3,8 +3,8 @@ from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 # ================== НАЛАШТУВАННЯ ==================
-BOT_TOKEN = os.environ["BOT_TOKEN"]           # Твій токен бота
-SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])  # chat.id каналу джерела
+BOT_TOKEN = os.environ["BOT_TOKEN"]                  # Твій токен бота
+SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])   # chat.id каналу джерела
 TARGET_CHANNEL = "@Outlet_brand_Gopaska_boutique"
 SOURCE_LINK = "https://t.me/Gopaska_outlet"
 # ================================================
@@ -18,6 +18,9 @@ async def channel_forwarder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not hasattr(update, "channel_post") or update.channel_post is None:
         return
     msg = update.channel_post
+
+    # Логування для дебагу
+    print(f"Received message in chat_id={msg.chat.id}, type={msg.chat.type}")
 
     # Перевірка chat.id джерела
     if msg.chat.id != SOURCE_CHAT_ID:
@@ -79,6 +82,7 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE):
     album_scheduled.discard(group_id)
 
 def main():
+    print(f"SOURCE_CHAT_ID={SOURCE_CHAT_ID}, TARGET_CHANNEL={TARGET_CHANNEL}")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Використовуємо фільтр ALL для всіх типів повідомлень
