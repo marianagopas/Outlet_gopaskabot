@@ -11,9 +11,9 @@ SOURCE_USERNAME = "Gopaska_outlet"
 DRAFTS_FILE = "drafts.json"
 # ================================================
 
-# ======== БУФЕР ДЛЯ АЛЬБОМІВ ========
-drafts = {}              # media_group_id -> {"photos": [...], "first_msg_id": ...}
-current_group_id = None # ОСТАННІЙ активний media_group_id
+drafts = {}               # media_group_id -> {"photos": [...], "first_msg_id": ...}
+current_group_id = None  # який альбом ми зараз збираємо
+sent_groups = set()      # щоб НЕ відправляти один альбом двічі
 
 # --- Безпечне завантаження JSON ---
 if os.path.exists(DRAFTS_FILE) and os.path.getsize(DRAFTS_FILE) > 0:
@@ -28,8 +28,14 @@ def save_drafts():
         json.dump(drafts, f, ensure_ascii=False, indent=2)
 
 async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
-    """Відправляє альбом + підпис і очищає буфер"""
+    """Відправляє альбом + підпис і повністю закриває його"""
+    global current_group_id
+
     if group_id not in drafts:
+        return
+
+    # Якщо вже відправляли — НЕ відправляємо знову
+    if group_id in sent_groups:
         return
 
     album = drafts[group_id]
@@ -47,18 +53,23 @@ async def send_album(context: ContextTypes.DEFAULT_TYPE, group_id):
 
     await context.bot.send_message(
         chat_id=TARGET_CHAT_ID,
-        text=f"<a href='{link}'>Переглянути джерело</a>",
+        text=f"<a href='{link}'>Переглянути альбом у джерелі</a>",
         parse_mode="HTML"
     )
 
-    # Очищаємо буфер
+    # 3️⃣ ОЧИЩАЄМО ВСЕ, ЩО ПОВ’ЯЗАНЕ З ЦИМ АЛЬБОМОМ
+    sent_groups.add(group_id)
     del drafts[group_id]
     save_drafts()
+
+    # 🔹 Дуже важливо: СКИДАЄМО поточний альбом
+    if current_group_id == group_id:
+        current_group_id = None
 
 async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_group_id
 
-    msg = update.effective_message
+    msg = update.channel_post
     if not msg or msg.chat.id != SOURCE_CHAT_ID:
         return
 
@@ -66,7 +77,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ======= АЛЬБОМ =======
     if new_group_id:
-        # 🔹 Якщо прийшов НОВИЙ альбом — відправляємо попередній
+        # Якщо прийшов ІНШИЙ альбом — спочатку закриваємо попередній
         if current_group_id and current_group_id != new_group_id:
             await send_album(context, current_group_id)
 
@@ -87,10 +98,9 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ======= ОДИНОЧНЕ ФОТО =======
     if msg.photo:
-        # Якщо перед цим був альбом — спочатку закриваємо його
+        # Якщо перед цим був альбом — закриваємо його
         if current_group_id:
             await send_album(context, current_group_id)
-            current_group_id = None
 
         first_msg_id = msg.message_id
         link = f"https://t.me/{SOURCE_USERNAME}/{first_msg_id}"
