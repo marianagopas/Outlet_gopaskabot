@@ -1,7 +1,7 @@
 import json
 import os
 import asyncio
-from telegram import Update, InputMediaPhoto, InputMediaVideo
+from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 # === Налаштування ===
@@ -40,10 +40,7 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
         caption = None
         if i == len(media_items) - 1:
             caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{first_msg_id}'>Outlet</a>"
-        if item["type"] == "photo":
-            output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
-        elif item["type"] == "video":
-            output_media.append(InputMediaVideo(media=item["file_id"], caption=caption))
+        output_media.append(InputMediaPhoto(media=item["file_id"], caption=caption))
 
     if output_media:
         await context.bot.send_media_group(chat_id=TARGET_CHANNEL_ID, media=output_media)
@@ -66,27 +63,20 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     media_group_id = getattr(message, "media_group_id", None)
-    file_id = None
-    media_type = None
+    if not message.photo:
+        return  # поки працюємо лише з фото
 
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        media_type = "photo"
-    elif message.video:
-        file_id = message.video.file_id
-        media_type = "video"
-    else:
-        return  # поки тільки фото і відео
+    file_id = message.photo[-1].file_id
 
     if media_group_id:
-        # Якщо альбом новий
+        # Новий альбом
         if media_group_id not in albums:
             albums[media_group_id] = {
                 "media": [],
                 "first_message_id": message.message_id
             }
 
-        albums[media_group_id]["media"].append({"file_id": file_id, "type": media_type})
+        albums[media_group_id]["media"].append({"file_id": file_id})
         save_albums()
 
         # Скасовуємо старий таймер, якщо є
@@ -97,12 +87,9 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = asyncio.create_task(schedule_album_send(media_group_id, context))
         album_timers[media_group_id] = task
     else:
-        # Одиночне фото/відео
+        # Одиночне фото
         caption = f"<a href='https://t.me/{SOURCE_USERNAME}/{message.message_id}'>Outlet</a>"
-        if media_type == "photo":
-            await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
-        elif media_type == "video":
-            await context.bot.send_video(chat_id=TARGET_CHANNEL_ID, video=file_id, caption=caption)
+        await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
 
 # === Main ===
 def main():
