@@ -13,11 +13,13 @@ DRAFTS_FILE = "drafts.json"         # json для альбомів
 # ================================================
 
 # --- Завантаження чернеток ---
-if os.path.exists(DRAFTS_FILE):
-    with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
-        drafts = json.load(f)
-else:
-    drafts = {}
+drafts = {}
+if os.path.exists(DRAFTS_FILE) and os.path.getsize(DRAFTS_FILE) > 0:
+    try:
+        with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
+            drafts = json.load(f)
+    except json.JSONDecodeError:
+        drafts = {}
 
 def save_drafts():
     with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
@@ -30,8 +32,8 @@ def log_forward(album_link, count):
 
 # --- Відправка альбому та підпису ---
 async def send_album(context: ContextTypes.DEFAULT_TYPE, draft_id):
-    draft = drafts[draft_id]
-    if not draft.get("photos"):
+    draft = drafts.get(draft_id)
+    if not draft or not draft.get("photos"):
         return
 
     # Відправляємо альбом
@@ -72,8 +74,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         save_drafts()
 
-        # Відправляємо альбом одразу після останнього фото
-        # Створюємо задачу, щоб не блокувати прийом наступних повідомлень
+        # Відправляємо альбом асинхронно
         asyncio.create_task(send_album(context, media_group_id))
         return
 
