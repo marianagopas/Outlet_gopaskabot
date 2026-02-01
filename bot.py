@@ -1,10 +1,10 @@
 import json
 import os
 import asyncio
-from telegram import Update, InputMediaPhoto, InputMediaVideo
+from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD9O8"
+BOT_TOKEN = "8567978239:AAFA0MrCVit7WkIyrMX2NxJ0Rxq6NvqD8"
 SOURCE_CHANNEL_ID = -1003840384606
 TARGET_CHANNEL_ID = -1001321059832
 JSON_FILE = "albums.json"
@@ -35,10 +35,9 @@ async def send_album(media_group_id, context: ContextTypes.DEFAULT_TYPE):
     media_list = []
     for i, file_id in enumerate(photos):
         if i == len(photos) - 1:  # останній елемент з підписом
-            caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{first_msg_id}'>Джерело</a>"
+            caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{first_msg_id}'>Outlet</a>"
         else:
             caption = None
-
         media_list.append(InputMediaPhoto(media=file_id, caption=caption))
 
     if media_list:
@@ -64,11 +63,8 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if message.photo:
         file_id = message.photo[-1].file_id
-    elif message.video:
-        # для відео
-        file_id = message.video.file_id
     else:
-        return  # нічого не пересилаємо, тільки медіа
+        return  # обробляємо тільки фото, можна додати відео аналогічно
 
     if media_group_id:
         # Створюємо альбом у JSON, якщо ще немає
@@ -89,12 +85,9 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = asyncio.create_task(schedule_album_send(media_group_id, context))
         album_timers[media_group_id] = task
     else:
-        # Одиночне фото/відео
-        caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{message.message_id}'>Джерело</a>"
-        if message.photo:
-            await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
-        elif message.video:
-            await context.bot.send_video(chat_id=TARGET_CHANNEL_ID, video=file_id, caption=caption)
+        # Одиночне фото
+        caption = f"<a href='https://t.me/c/{str(SOURCE_CHANNEL_ID)[4:]}/{message.message_id}'>Outlet</a>"
+        await context.bot.send_photo(chat_id=TARGET_CHANNEL_ID, photo=file_id, caption=caption)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
